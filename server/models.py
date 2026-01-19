@@ -1,41 +1,43 @@
 from flask_sqlalchemy import SQLAlchemy
-from flask_bcrypt import generate_password_hash, check_password_hash
-from sqlalchemy.orm import validates
-from app import db
+from werkzeug.security import generate_password_hash, check_password_hash
+
+db = SQLAlchemy()
 
 class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String, nullable=False, unique=True)
-    _password_hash = db.Column(db.String, nullable=False)
-    image_url = db.Column(db.String)
-    bio = db.Column(db.String)
+    username = db.Column(db.String(80), nullable=False, unique=True)
+    _password_hash = db.Column(db.String(128), nullable=False)
+    image_url = db.Column(db.String, default="")
+    bio = db.Column(db.String, default="")
 
-    # Relationship
-    recipes = db.relationship("Recipe", back_populates="user")
+    recipes = db.relationship("Recipe", backref="user", cascade="all, delete-orphan")
 
-    # Password property
+    # password property
     @property
-    def password_hash(self):
+    def password(self):
         raise AttributeError("Password is write-only")
 
-    @password_hash.setter
-    def password_hash(self, password):
-        self._password_hash = generate_password_hash(password).decode('utf-8')
+    @password.setter
+    def password(self, plaintext):
+        self._password_hash = generate_password_hash(plaintext)
 
-    # Authenticate method
-    def authenticate(self, password):
-        return check_password_hash(self._password_hash, password)
+    def check_password(self, plaintext):
+        return check_password_hash(self._password_hash, plaintext)
 
-    # Validations
-    @validates("username")
-    def validate_username(self, key, username):
-        if not username:
-            raise ValueError("Username must be present")
-        if User.query.filter_by(username=username).first():
-            raise ValueError("Username must be unique")
-        return username
+    # Some tests expect authenticate()
+    def authenticate(self, plaintext):
+        return self.check_password(plaintext)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "image_url": self.image_url,
+            "bio": self.bio,
+            "recipes": [r.to_dict() for r in self.recipes]
+        }
 
 
 class Recipe(db.Model):
@@ -44,22 +46,14 @@ class Recipe(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String, nullable=False)
     instructions = db.Column(db.String, nullable=False)
-    minutes_to_complete = db.Column(db.Integer)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    minutes_to_complete = db.Column(db.Integer, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
 
-    # Relationship
-    user = db.relationship("User", back_populates="recipes")
-
-    # Validations
-    @validates("instructions")
-    def validate_instructions(self, key, instructions):
-        if not instructions or len(instructions) < 50:
-            raise ValueError("Instructions must be at least 50 characters long")
-        return instructions
-
-    @validates("title")
-    def validate_title(self, key, title):
-        if not title:
-            raise ValueError("Title must be present")
-        return title
-
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "instructions": self.instructions,
+            "minutes_to_complete": self.minutes_to_complete,
+            "user_id": self.user_id
+        }
